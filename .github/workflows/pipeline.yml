@@ -33,8 +33,11 @@ jobs:
           sudo mv terraform /usr/local/bin/
 
       - name: Terraform Init & Apply
+        env:
+          TF_VAR_yc_token:     ${{ secrets.YC_TOKEN }}
+          TF_VAR_yc_cloud_id:  ${{ secrets.YC_CLOUD_ID }}
+          TF_VAR_yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
         run: |
-          echo "${{ secrets.TERRAFORM_RC }}" > ~/.terraformrc
           cd tf
           terraform init
           terraform validate
@@ -174,8 +177,11 @@ jobs:
           sudo mv terraform /usr/local/bin/
 
       - name: Destroy
+        env:
+          TF_VAR_yc_token:     ${{ secrets.YC_TOKEN }}
+          TF_VAR_yc_cloud_id:  ${{ secrets.YC_CLOUD_ID }}
+          TF_VAR_yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
         run: |
-          echo "${{ secrets.TERRAFORM_RC }}" > ~/.terraformrc
           cd tf
           terraform init
           terraform destroy -auto-approve
