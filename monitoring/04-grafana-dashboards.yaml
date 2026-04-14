@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  otus-monitoring.json: |-
+    {
+      "title": "OTUS Monitoring",
+      "uid": "otus-monitoring",
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Throughput (RPS)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+          "targets": [
+            {"expr": "rate(predictions_total[1m])", "legendFormat": "rps"}
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Fraud Rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+          "targets": [
+            {
+              "expr": "rate(fraud_predictions_total[1m]) / rate(predictions_total[1m])",
+              "legendFormat": "fraud_rate"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "CPU Usage per pod (%)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "cpu_usage_percent{namespace=\"otus\", pod=~\"consumer.*\"}", "legendFormat": "{{pod}}"}
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Replicas (current)",
+          "type": "stat",
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+          "targets": [
+            {"expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}"}
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Memory Usage per pod (%)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+          "targets": [
+            {"expr": "memory_usage_percent{namespace=\"otus\", pod=~\"consumer.*\"}", "legendFormat": "{{pod}}"}
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Dataset Drift (0/1)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+          "targets": [
+            {"expr": "dataset_drift", "legendFormat": "drift"}
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Pipeline Latency p95 (sec)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(pipeline_latency_seconds_bucket[5m]))",
+              "legendFormat": "p95 latency"
+            }
+          ]
+        },
+
+        {
+          "id": 8,
+          "title": "Replicas over time",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+          "targets": [
+            {"expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}"}
+          ]
+        },
+
+        {
+          "id": 9,
+          "title": "Kafka Lag (current)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+          "targets": [
+            {
+              "expr": "sum(kafka_consumer_lag)",
+              "legendFormat": "lag"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "Kafka Lag per partition",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+          "targets": [
+            {
+              "expr": "kafka_consumer_lag",
+              "legendFormat": "{{partition}}"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "title": "Kafka Lag growth (lag per time)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+          "targets": [
+            {
+              "expr": "rate(kafka_consumer_lag[1m])",
+              "legendFormat": "lag_rate"
+            }
+          ]
+        }
+      ]
+    }

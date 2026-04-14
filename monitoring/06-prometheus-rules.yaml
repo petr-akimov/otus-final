@@ -1,0 +1,129 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fraud-detection-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kp-kube-prometheus-stack-prometheus
+    release: kp
+    role: alert-rules
+
+spec:
+  groups:
+  - name: otus-monitoring.rules
+    interval: 30s
+    rules:
+
+    # =========================================================
+    # ✅ CPU per pod
+    # =========================================================
+    - alert: ConsumerHighCPUPerPod
+      expr: cpu_usage_percent{namespace="otus", pod=~"consumer.*"} > 80
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage per pod"
+        description: "Pod {{ $labels.pod }} CPU > 80% for 2m"
+
+    # =========================================================
+    # ✅ Memory per pod
+    # =========================================================
+    - alert: ConsumerHighMemoryPerPod
+      expr: memory_usage_percent{namespace="otus", pod=~"consumer.*"} > 80
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High Memory usage per pod"
+        description: "Pod {{ $labels.pod }} Memory > 80% for 2m"
+
+    # =========================================================
+    # ✅ Kafka Lag high
+    # =========================================================
+    - alert: KafkaLagHigh
+      expr: sum(kafka_consumer_lag) > 1000
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High Kafka lag"
+        description: "Kafka lag is too high (>1000). Current: {{ $value }}"
+
+    # =========================================================
+    # ✅ Kafka Lag growing
+    # =========================================================
+    - alert: KafkaLagGrowing
+      expr: rate(kafka_consumer_lag[5m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Kafka lag is growing"
+        description: "Lag is increasing over time"
+
+    # =========================================================
+    # ✅ Latency p95 high
+    # =========================================================
+    - alert: HighPipelineLatencyP95
+      expr: |
+        histogram_quantile(0.95, rate(pipeline_latency_seconds_bucket[5m])) > 1
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High pipeline latency p95"
+        description: "p95 latency > 1s"
+
+    # =========================================================
+    # ✅ Low throughput (pipeline stalled)
+    # =========================================================
+    - alert: LowThroughput
+      expr: rate(predictions_total[1m]) < 1
+      for: 3m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Low throughput"
+        description: "Predictions RPS < 1 (pipeline may be stalled)"
+
+    # =========================================================
+    # ✅ Fraud spike
+    # =========================================================
+    - alert: FraudRateHigh
+      expr: |
+        (
+          rate(fraud_predictions_total[5m])
+          /
+          rate(predictions_total[5m])
+        ) > 0.5
+      for: 3m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High fraud rate"
+        description: "Fraud rate > 50%"
+
+    # =========================================================
+    # ✅ Dataset drift detected
+    # =========================================================
+    - alert: DatasetDriftDetected
+      expr: dataset_drift == 1
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Dataset drift detected"
+        description: "Drift detected in incoming data"
+
+    # =========================================================
+    # ✅ 4. Drift state change (любое изменение)
+    # =========================================================
+    - alert: DatasetDriftStateChanged
+      expr: changes(dataset_drift[2m]) > 0   # 🔧 FIX: любое изменение 0↔1
+      for: 0m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Dataset drift state changed"
+        description: "dataset_drift changed state (0↔1). Current value: {{ $value }}"

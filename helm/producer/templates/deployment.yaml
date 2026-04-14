@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: producer
+  template:
+    metadata:
+      labels:
+        app: producer
+    spec:
+      containers:
+        - name: producer
+          image: petrakimovdocker/producer:{{ .Values.image.tag }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: "{{ .Values.kafka.bootstrap }}"
+            - name: KAFKA_TOPIC
+              value: "{{ .Values.kafka.topic }}"
+            - name: S3_ENDPOINT
+              value: "{{ .Values.minio.endpoint }}"
+            - name: AWS_ACCESS_KEY_ID
+              value: "{{ .Values.minio.accessKey }}"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "{{ .Values.minio.secretKey }}"
+            - name: TPS
+              value: "{{ .Values.config.tps }}"
+            - name: DATASET
+              value: "{{ .Values.config.dataset }}"

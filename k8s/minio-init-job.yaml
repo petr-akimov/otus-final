@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  namespace: otus
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: init-minio
+        image: alpine:3.23.3
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "📦 Installing MinIO Client and curl..."
+            apk add --no-cache curl
+            wget https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
+            chmod +x /usr/local/bin/mc
+            
+            echo "🔧 Waiting for MinIO to be ready..."
+            until mc alias set myminio http://minio.otus.svc.cluster.local:9000 minio minio123; do
+              echo "MinIO not ready yet, waiting..."
+              sleep 5
+            done
+            
+            echo "✅ MinIO is ready!"
+            
+            echo "📦 Creating buckets..."
+            mc mb myminio/datasets --ignore-existing
+            mc mb myminio/mlflow --ignore-existing
+            
+            echo "📥 Downloading reference data from GitHub..."
+            curl -L -o /tmp/reference.csv https://raw.githubusercontent.com/petr-akimov/af/refs/heads/main/train.csv
+            curl -L -o /tmp/b.csv https://raw.githubusercontent.com/petr-akimov/myfiles/refs/heads/main/b.csv
+            echo "📤 Uploading reference data to MinIO..."
+            mc cp /tmp/reference.csv myminio/datasets/reference.csv
+            mc cp /tmp/reference.csv myminio/datasets/a.csv
+            mc cp /tmp/b.csv myminio/datasets/b.csv
+            echo "✅ MinIO initialization completed!"
+            mc ls myminio/datasets/

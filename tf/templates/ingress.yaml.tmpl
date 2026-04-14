@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller
+  namespace: otus
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+spec:
+  type: LoadBalancer
+  loadBalancerIP: ${static_ip}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: https
+      port: 443
+      targetPort: 443
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: akimovp-ingress
+  namespace: otus
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: shop.akimovp.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: afmodel
+            port:
+              number: 80
+  - host: mlflow.akimovp.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mlflow
+            port:
+              number: 5000
+  - host: airflow.akimovp.ru
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: airflow
+            port:
+              number: 8080
+  - host: minio.akimovp.ru
+    http:
+      paths:
+      # API MinIO (S3 совместимый)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+  - host: minio-console.akimovp.ru
+    http:
+      paths:
+      # Web Console MinIO
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9001

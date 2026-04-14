@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: consumer
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      enableServiceLinks: false 
+      containers:
+        - name: consumer
+          image: petrakimovdocker/consumer:{{ .Values.image.tag }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: {{ .Values.kafka.broker }}
+            - name: KAFKA_INPUT_TOPIC
+              value: {{ .Values.kafka.inputTopic }}
+            - name: KAFKA_OUTPUT_TOPIC
+              value: {{ .Values.kafka.outputTopic }}
+            - name: DATASET
+              value: {{ .Values.dataset }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.s3.endpoint }}
+            - name: AWS_ACCESS_KEY_ID
+              value: {{ .Values.s3.accessKey }}
+            - name: AWS_SECRET_ACCESS_KEY
+              value: {{ .Values.s3.secretKey }}
+            - name: DRIFT_THRESHOLD
+              value: "{{ .Values.consumer.driftThreshold }}"
+            - name: AIRFLOW_API
+              value: {{ .Values.airflow.url }}
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+          resources:
+{{ toYaml .Values.resources | indent 12 }}

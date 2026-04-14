@@ -1,0 +1,15 @@
+image:
+  tag: latest   # repository удалён
+
+kafka:
+  bootstrap: kafka:9092
+  topic: input
+
+minio:
+  endpoint: http://minio:9000
+  accessKey: minio
+  secretKey: minio123
+
+config:
+  tps: "5"
+  dataset: "a.csv"

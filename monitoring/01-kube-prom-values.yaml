@@ -1,0 +1,105 @@
+# kube-prometheus-stack: Prometheus + Grafana + Alertmanager
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: "admin"
+  service:
+    type: ClusterIP
+  persistence:
+    enabled: false
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /var/lib/grafana/dashboards
+    datasources:
+      enabled: false          # отключаем sidecar, будем задавать datasources явно
+
+  ingress:
+    enabled: false
+
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: browser
+
+  # Явное задание источников данных (без sidecar)
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://kp-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          isDefault: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki.monitoring.svc.cluster.local:3100
+          isDefault: false
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards
+
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    evaluationInterval: 30s
+    scrapeInterval: 30s
+    retention: 7d
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 200m
+      limits:
+        memory: 2Gi
+        cpu: 1000m
+    storageSpec:
+      emptyDir: {}
+
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
+
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'namespace']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'telegram'
+      routes:
+      - match:
+          severity: warning
+        receiver: telegram
+        continue: false
+    receivers:
+    - name: 'telegram'
+      telegram_configs:
+      - bot_token: '8522806442:AAHb1aZ3jANneS4jIvG_xsSWq1dPtvc9VaM'
+        chat_id: 1743489450
+        parse_mode: 'HTML'
+        send_resolved: true
+        message: |
+          🚨 *{{ .GroupLabels.alertname }}* 🔥
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Value:* {{ .Annotations.value }}
+          {{ end }}

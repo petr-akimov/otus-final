@@ -1,0 +1,8 @@
+pandas
+lightgbm
+scikit-learn
+mlflow==2.22.0
+boto3
+joblib
+fsspec
+s3fs

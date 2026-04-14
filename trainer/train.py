@@ -1,0 +1,302 @@
+import sys
+print("!!! DEBUG: train.py STARTED !!!", file=sys.stderr)
+sys.stderr.flush()
+
+import os
+import argparse
+import pandas as pd
+import numpy as np
+import joblib
+import lightgbm as lgb
+import mlflow
+import mlflow.sklearn
+from mlflow.tracking import MlflowClient
+from mlflow.models import infer_signature
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
+import warnings
+warnings.filterwarnings('ignore')
+
+
+def load_data(path: str):
+    print(f"Loading data from {path}")
+
+    if path.startswith('s3://'):
+        storage_options = {
+            'key': os.environ.get('AWS_ACCESS_KEY_ID', 'minio'),
+            'secret': os.environ.get('AWS_SECRET_ACCESS_KEY', 'minio123'),
+            'client_kwargs': {
+                'endpoint_url': os.environ.get('MLFLOW_S3_ENDPOINT_URL', 'http://minio:9000'),
+                'verify': False
+            }
+        }
+        print(f"Using S3 storage options with endpoint: {storage_options['client_kwargs']['endpoint_url']}")
+        df = pd.read_csv(path, storage_options=storage_options)
+    else:
+        df = pd.read_csv(path)
+
+    print(f"Data loaded successfully. Shape: {df.shape}")
+    print(f"Columns: {list(df.columns)}")
+
+    if 'fraud' not in df.columns:
+        raise ValueError("Target column 'fraud' not found in data")
+
+    columns_to_drop = []
+    for col in ['transaction_id', 'timestamp']:
+        if col in df.columns:
+            columns_to_drop.append(col)
+            print(f"Will drop column: {col}")
+
+    for col in df.columns:
+        if col != 'fraud' and df[col].dtype == 'object':
+            columns_to_drop.append(col)
+            print(f"Will drop non-numeric column: {col}")
+
+    if columns_to_drop:
+        df = df.drop(columns=columns_to_drop)
+        print(f"Dropped columns: {columns_to_drop}")
+
+    X = df.drop(columns=["fraud"])
+    y = df["fraud"]
+
+    print(f"Features after processing: {list(X.columns)}")
+    print(f"Features shape: {X.shape}")
+
+    if X.isnull().any().any():
+        print("Warning: NaN values found. Filling with 0...")
+        X = X.fillna(0)
+
+    if y.isnull().any():
+        print("Warning: NaN values in target. Filling with mode...")
+        y = y.fillna(y.mode()[0] if not y.mode().empty else 0)
+
+    return train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+def train_model(X_train, y_train, X_val, y_val):
+    print(f"Training model on {X_train.shape[1]} features, {len(X_train)} samples")
+
+    categorical_features = ['repeat_retailer', 'used_chip', 'used_pin_number', 'online_order']
+
+    model = lgb.LGBMClassifier(
+        n_estimators=200,
+        max_depth=7,
+        learning_rate=0.05,
+        num_leaves=31,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        class_weight='balanced',
+        random_state=42,
+        verbose=-1,
+        n_jobs=-1
+    )
+
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        eval_metric='auc',
+        categorical_feature=categorical_features,
+        callbacks=[lgb.early_stopping(10)]
+    )
+
+    return model
+
+
+def evaluate(model, X_test, y_test):
+    preds = model.predict(X_test)
+    preds_proba = model.predict_proba(X_test)[:, 1]
+
+    return {
+        "auc": roc_auc_score(y_test, preds_proba),
+        "accuracy": accuracy_score(y_test, preds),
+        "f1": f1_score(y_test, preds),
+    }
+
+
+def register_model(model_uri, experiment_name):
+    client = MlflowClient()
+    model_name = f"{experiment_name}_model"
+
+    try:
+        client.get_registered_model(model_name)
+        print(f"Model {model_name} already exists")
+    except:
+        client.create_registered_model(model_name)
+        print(f"Created model {model_name}")
+
+    version = client.create_model_version(
+        name=model_name,
+        source=model_uri,
+        run_id=None,
+        tags={"source": "airflow-training"}
+    )
+    print(f"Registered model version: {version.version}")
+    return version.version
+
+
+# ===================== ДОБАВЛЕННАЯ ЛОГИКА =====================
+
+def get_model_by_alias(client, model_name, alias):
+    try:
+        return client.get_model_version_by_alias(model_name, alias)
+    except Exception:
+        return None
+
+
+def set_alias(client, model_name, version, alias):
+    client.set_registered_model_alias(
+        name=model_name,
+        alias=alias,
+        version=version
+    )
+    print(f"Set alias @{alias} -> version {version}")
+
+
+def remove_alias_if_exists(client, model_name, alias):
+    try:
+        mv = client.get_model_version_by_alias(model_name, alias)
+        if mv:
+            client.delete_registered_model_alias(model_name, alias)
+            print(f"Removed existing @{alias} alias")
+    except Exception:
+        pass
+
+
+def load_model_by_version(model_name, version):
+    model_uri = f"models:/{model_name}/{version}"
+    print(f"Loading model from {model_uri}")
+    return mlflow.sklearn.load_model(model_uri)
+
+
+def ab_test_and_promote(client, model_name, new_version, X_test, y_test):
+    print("Starting A/B test...")
+
+    champion_mv = get_model_by_alias(client, model_name, "champion")
+
+    if champion_mv is None:
+        print("No champion found. Promoting new model to champion.")
+        set_alias(client, model_name, new_version, "champion")
+        return
+
+    remove_alias_if_exists(client, model_name, "challenger")
+    set_alias(client, model_name, new_version, "challenger")
+
+    champion_version = champion_mv.version
+
+    champion_model = load_model_by_version(model_name, champion_version)
+    challenger_model = load_model_by_version(model_name, new_version)
+
+    champ_metrics = evaluate(champion_model, X_test, y_test)
+    chall_metrics = evaluate(challenger_model, X_test, y_test)
+
+    print("Champion metrics:", champ_metrics)
+    print("Challenger metrics:", chall_metrics)
+
+    if chall_metrics["auc"] > champ_metrics["auc"]:
+        print("Challenger wins! Promoting to champion.")
+        remove_alias_if_exists(client, model_name, "champion")
+        set_alias(client, model_name, new_version, "champion")
+    else:
+        print("Champion remains.")
+
+
+# =============================================================
+
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--tracking-uri")
+    parser.add_argument("--experiment-name", default="fraud_detection")
+    parser.add_argument("--auto-register", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.tracking_uri:
+        mlflow.set_tracking_uri(args.tracking_uri)
+        print(f"MLflow tracking URI: {args.tracking_uri}")
+
+    mlflow.set_experiment(args.experiment_name)
+    print(f"Experiment: {args.experiment_name}")
+
+    try:
+        X_train, X_test, y_train, y_test = load_data(args.input)
+        print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=42
+        )
+        print(f"Train size after split: {len(X_train)}, Validation size: {len(X_val)}")
+
+        with mlflow.start_run() as run:
+            mlflow.set_tag("reference_dataset", os.path.basename(args.input))
+
+            model = train_model(X_train, y_train, X_val, y_val)
+
+            best_iteration = model.best_iteration_
+            print(f"Best iteration: {best_iteration}")
+
+            metrics = evaluate(model, X_test, y_test)
+
+            mlflow.log_params({
+                "n_estimators": 200,
+                "max_depth": 7,
+                "learning_rate": 0.05,
+                "num_leaves": 31,
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "class_weight": "balanced",
+                "best_iteration": best_iteration,
+                "categorical_features": ['repeat_retailer', 'used_chip', 'used_pin_number', 'online_order']
+            })
+
+            for k, v in metrics.items():
+                mlflow.log_metric(k, v)
+
+            signature = infer_signature(X_train, model.predict(X_train))
+
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path="model",
+                signature=signature,
+                input_example=X_train[:5],
+                registered_model_name=args.experiment_name if args.auto_register else None
+            )
+
+            print("Metrics:", metrics)
+
+            joblib.dump(model, args.output)
+            print(f"Model saved to {args.output}")
+
+            # ====== ВСТАВКА A/B ======
+            if args.auto_register:
+                client = MlflowClient()
+                model_name = args.experiment_name
+
+                latest_versions = client.get_latest_versions(model_name)
+                new_version = max([int(mv.version) for mv in latest_versions])
+
+                print(f"New model version: {new_version}")
+
+                ab_test_and_promote(
+                    client=client,
+                    model_name=model_name,
+                    new_version=new_version,
+                    X_test=X_test,
+                    y_test=y_test
+                )
+            # ==========================
+
+        print("Training completed successfully!")
+
+    except Exception as e:
+        print(f"Error during training: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

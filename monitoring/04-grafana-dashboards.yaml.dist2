@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  otus-monitoring.json: |-
+    {
+      "title": "OTUS Monitoring",
+      "uid": "otus-monitoring",
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Throughput (RPS)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "rate(predictions_total[1m])",
+              "legendFormat": "rps"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Fraud Rate",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+          "targets": [
+            {
+              "expr": "rate(fraud_predictions_total[1m]) / rate(predictions_total[1m])",
+              "legendFormat": "fraud_rate"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "CPU Usage per pod (%)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "cpu_usage_percent{namespace=\"otus\", pod=~\"consumer.*\"}",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "max": 100,
+              "min": 0
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "Replicas (current)",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}",
+              "legendFormat": "replicas"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Memory Usage per pod (%)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "memory_usage_percent{namespace=\"otus\", pod=~\"consumer.*\"}",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "max": 100,
+              "min": 0
+            }
+          }
+        },
+        {
+          "id": 6,
+          "title": "Dataset Drift (0/1)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+          "targets": [
+            {
+              "expr": "dataset_drift",
+              "legendFormat": "drift"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "id": 7,
+          "title": "Pipeline Latency p95 (sec)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(pipeline_latency_seconds_bucket[5m]))",
+              "legendFormat": "p95 latency"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "title": "Replicas over time",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}",
+              "legendFormat": "replicas"
+            }
+          ]
+        }
+      ]
+    }

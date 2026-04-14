@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-data
+  namespace: otus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-task-data
+  namespace: otus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow
+  namespace: otus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+  template:
+    metadata:
+      labels:
+        app: airflow
+    spec:
+      serviceAccountName: airflow
+      initContainers:
+      - name: fix-permissions
+        image: busybox:latest
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c']
+        args:
+          - |
+            echo "📁 Creating directories..."
+            mkdir -p /opt/airflow/logs /opt/airflow/dags
+            echo "🔧 Setting permissions..."
+            chown -R 50000:50000 /opt/airflow
+            chmod -R 755 /opt/airflow
+            echo "✅ Permissions fixed"
+        volumeMounts:
+        - name: airflow-data
+          mountPath: /opt/airflow
+      - name: wait-for-postgres
+        image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            until pg_isready -h postgres.otus.svc.cluster.local -p 5432 -U airflow; do
+              echo "Waiting for postgres..."
+              sleep 2
+            done
+            echo "PostgreSQL is ready!"
+      containers:
+      - name: airflow
+        image: apache/airflow:2.8.1-python3.11
+        imagePullPolicy: IfNotPresent        
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "🗄️ Running database migrations..."
+            airflow db migrate
+
+            echo "👤 Creating admin user..."
+            airflow users create \
+              --username admin \
+              --firstname Admin \
+              --lastname User \
+              --role Admin \
+              --email admin@example.com \
+              --password admin || true
+
+            echo "🚀 Starting Airflow standalone..."
+            airflow standalone
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: "LocalExecutor"
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: AIRFLOW_CONN
+        - name: AIRFLOW__API__AUTH_BACKENDS
+          value: "airflow.api.auth.backend.basic_auth"
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          value: "/opt/airflow/dags"
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: "false"
+        - name: AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL
+          value: "5"
+        - name: AIRFLOW__LOGGING__BASE_LOG_FOLDER
+          value: "/opt/airflow/logs"
+        - name: DRIFTER_URL
+          value: "http://drifter.otus.svc.cluster.local/api/v1/data"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow.otus.svc.cluster.local:5000"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio.otus.svc.cluster.local:9000"
+        - name: REFERENCE_DATA_S3_PATH
+          value: "s3://datasets/reference.csv"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: airflow-data
+          mountPath: /opt/airflow
+      volumes:
+      - name: airflow-data
+        persistentVolumeClaim:
+          claimName: airflow-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow
+  namespace: otus
+spec:
+  selector:
+    app: airflow
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: NodePort
