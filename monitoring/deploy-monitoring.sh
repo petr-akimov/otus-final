@@ -17,11 +17,14 @@ echo ">>> Установку metrics-server пропускаем, так как 
 #helm upgrade --install metrics-server metrics-server/metrics-server --namespace kube-system --set-json 'args=["--kubelet-insecure-tls","--kubelet-preferred-address-types=InternalIP,Hostname,ExternalIP"]' --set replicas=1 --wait --kubeconfig kube_config
 echo ">>> Ставлю дашборды"
 kubectl apply -f monitoring/04-grafana-dashboards.yaml --kubeconfig kube_config
+kubectl apply -f monitoring/03-grafana-loki-dashboards.yaml --kubeconfig kube_config
 echo ">>> Применяю PrometheusRule для алертов и рестартую графана"
 kubectl apply -f monitoring/06-prometheus-rules.yaml --kubeconfig kube_config
 kubectl delete pod -n monitoring -l app.kubernetes.io/name=grafana --kubeconfig kube_config
 echo ">>> Создаю Ingress для Grafana"
 kubectl apply -f monitoring/05-grafana-ingress.yaml --kubeconfig kube_config
+echo ">>> Устанавливаю Service Monitor"
+kubectl apply -f monitoring/08-servicemonitor-consumer.yaml --kubeconfig kube_config
 echo ">>> Проверяю статус пода Grafana"
 GRAFANA_POD=$(kubectl get pods --kubeconfig kube_config -n $NAMESPACE -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 GRAFANA_STATUS=$(kubectl get pods -n $NAMESPACE --kubeconfig kube_config -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="grafana")].state.waiting.reason}' 2>/dev/null || true)
@@ -48,3 +51,5 @@ kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=prometheus --kubeconfig
 echo "Loki:"
 kubectl get pods -n $NAMESPACE -l app=loki --kubeconfig kube_config
 echo ">>> Мониторинг стек установлен успешно"
+
+

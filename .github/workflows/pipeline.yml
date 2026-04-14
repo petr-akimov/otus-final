@@ -79,6 +79,12 @@ jobs:
         with:
           name: infra-artifacts
 
+      - name: Inject GitHub token into DAG file
+        run: |
+          cp dags/drift_detection.py.template dags/drift_detection.py
+          TOKEN_ESCAPED=$(echo "${{ secrets.GH_TOKEN }}" | sed 's/[&/\]/\\&/g')
+          sed -i "s/{{ GH_TOKEN }}/$TOKEN_ESCAPED/g" dags/drift_detection.py
+
       - name: Deploy
         run: |
           yc config set token "${{ secrets.YC_TOKEN }}"
@@ -96,19 +102,11 @@ jobs:
 
           sleep 10
 
-          kubectl -n otus wait \
-            --for=condition=ready pod \
-            -l app=airflow \
-            --timeout=240s \
-            --kubeconfig kube_config
+          kubectl -n otus wait --for=condition=ready pod -l app=airflow --timeout=600s --kubeconfig kube_config
 
-          POD_NAME=$(kubectl -n otus get pods -l app=airflow \
-            -o name --kubeconfig kube_config | head -1 | cut -d/ -f2)
+          POD_NAME=$(kubectl -n otus get pods -l app=airflow -o name --kubeconfig kube_config | head -1 | cut -d/ -f2)
 
-          kubectl cp dags/drift_detection.py \
-            otus/$POD_NAME:/opt/airflow/dags/drift_detection.py \
-            -c airflow \
-            --kubeconfig kube_config
+          kubectl cp dags/drift_detection.py otus/$POD_NAME:/opt/airflow/dags/drift_detection.py -c airflow --kubeconfig kube_config
 
 
   # =========================

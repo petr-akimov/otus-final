@@ -11,5 +11,5 @@ minio:
   secretKey: minio123
 
 config:
-  tps: "5"
+  tps: "1000"
   dataset: "a.csv"

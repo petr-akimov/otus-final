@@ -8,7 +8,7 @@ import requests
 
 from kubernetes.client import V1Volume, V1VolumeMount, V1PersistentVolumeClaimVolumeSource
 
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = "{{ GH_TOKEN }}"
 GITHUB_OWNER = "petr-akimov"
 GITHUB_REPO = "otus-final"
 EVENT_TYPE = "trigger-model"
