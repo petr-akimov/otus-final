@@ -1,0 +1,181 @@
+name: CI Pipeline
+
+on:
+  # ручной запуск (аналог when: manual)
+  workflow_dispatch:
+
+  # внешний триггер (аналог trigger token)
+  repository_dispatch:
+    types: [trigger-model]
+
+env:
+  IMAGE_NAME: petrakimovdocker/consumer
+  CHART_PATH: helm/consumer
+
+jobs:
+
+  # =========================
+  # INFRA (terraform)
+  # =========================
+  infra:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+          wget https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
+          unzip terraform_1.6.0_linux_amd64.zip
+          sudo mv terraform /usr/local/bin/
+
+      - name: Terraform Init & Apply
+        run: |
+          echo "${{ secrets.TERRAFORM_RC }}" > ~/.terraformrc
+          cd tf
+          terraform init
+          terraform validate
+          terraform apply -auto-approve
+          cp ingress.yaml ../
+
+      - name: Save artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: infra-artifacts
+          path: |
+            ingress.yaml
+            tf/terraform.tfstate
+            tf/.terraform.lock.hcl
+
+
+  # =========================
+  # DEPLOY
+  # =========================
+  deploy:
+    runs-on: ubuntu-latest
+    needs: infra
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yc, kubectl, helm
+        run: |
+          curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: infra-artifacts
+
+      - name: Deploy
+        run: |
+          yc config set token "${{ secrets.YC_TOKEN }}"
+          yc config set folder-id "${{ secrets.YC_FOLDER_ID }}"
+
+          yc managed-kubernetes cluster get-credentials akimovp-cluster \
+            --external --force --kubeconfig ./kube_config
+
+          kubectl apply -f ingress.yaml --kubeconfig kube_config
+
+          chmod +x monitoring/deploy-monitoring.sh
+          ./monitoring/deploy-monitoring.sh
+
+          kubectl apply -n otus -f k8s --kubeconfig kube_config
+
+          sleep 10
+
+          kubectl -n otus wait \
+            --for=condition=ready pod \
+            -l app=airflow \
+            --timeout=240s \
+            --kubeconfig kube_config
+
+          POD_NAME=$(kubectl -n otus get pods -l app=airflow \
+            -o name --kubeconfig kube_config | head -1 | cut -d/ -f2)
+
+          kubectl cp dags/drift_detection.py \
+            otus/$POD_NAME:/opt/airflow/dags/drift_detection.py \
+            -c airflow \
+            --kubeconfig kube_config
+
+
+  # =========================
+  # MODEL (аналог GitLab trigger pipeline)
+  # =========================
+
+
+  model:
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'repository_dispatch' &&
+        github.event.client_payload.MODEL_VERSION != ''
+
+    environment:
+      name: production   # ← ВОТ ЭТО ДЕЛАЕТ MANUAL APPROVE
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yc, kubectl, helm
+        run: |
+          curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+          sudo apt-get update
+          sudo apt-get install -y kubectl
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Deploy model
+        run: |
+          MODEL_VERSION=${{ github.event.client_payload.MODEL_VERSION }}
+
+          echo "Запуск деплоя модели версии v$MODEL_VERSION"
+
+          yc config set token "${{ secrets.YC_TOKEN }}"
+          yc config set folder-id "${{ secrets.YC_FOLDER_ID }}"
+
+          yc managed-kubernetes cluster get-credentials akimovp-cluster \
+            --external --force --kubeconfig ./kube_config
+
+          helm upgrade --install consumer $CHART_PATH \
+            --namespace otus \
+            --set image.repository=$IMAGE_NAME \
+            --set image.tag=v${MODEL_VERSION} \
+            --kubeconfig ./kube_config \
+            --wait --timeout 5m
+
+
+  # =========================
+  # CLEANUP
+  # =========================
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: infra
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip
+          wget https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
+          unzip terraform_1.6.0_linux_amd64.zip
+          sudo mv terraform /usr/local/bin/
+
+      - name: Destroy
+        run: |
+          echo "${{ secrets.TERRAFORM_RC }}" > ~/.terraformrc
+          cd tf
+          terraform init
+          terraform destroy -auto-approve

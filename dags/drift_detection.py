@@ -8,9 +8,10 @@ import requests
 
 from kubernetes.client import V1Volume, V1VolumeMount, V1PersistentVolumeClaimVolumeSource
 
-GITLAB_PROJECT_ID = "81050187"
-GITLAB_TRIGGER_TOKEN = "glptt-BcNXutnrz8JuEWc2uM_M"
-GITLAB_REF = "main"
+GITHUB_TOKEN = "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"
+GITHUB_OWNER = "petr-akimov"
+GITHUB_REPO = "otus-final"
+EVENT_TYPE = "trigger-model"
 
 default_args = {
     'owner': 'airflow',
@@ -107,24 +108,46 @@ with DAG(
         do_xcom_push=True,  # +
     )
     
-    def trigger_gitlab(**ctx):
+    def trigger_gha(**ctx):
         try:
             v = ctx["ti"].xcom_pull(task_ids="train-and-build")
-            requests.post(
-                f"https://gitlab.com/api/v4/projects/{GITLAB_PROJECT_ID}/trigger/pipeline",
-                data={
-                    "token": GITLAB_TRIGGER_TOKEN,
-                    "ref": GITLAB_REF,
-                    "variables[MODEL_VERSION]": (v.get("model_version") if isinstance(v, dict) else v),
+
+            model_version = (
+                v.get("model_version") if isinstance(v, dict) else v
+            )
+
+            url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/dispatches"
+
+            headers = {
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+            }
+
+            payload = {
+                "event_type": EVENT_TYPE,
+                "client_payload": {
+                    "MODEL_VERSION": str(model_version)
                 },
+            }
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
                 timeout=10,
             )
-        except Exception:
-            pass
 
-    trigger_gitlab_task = PythonOperator(
-        task_id="trigger_gitlab",
-        python_callable=trigger_gitlab,
+            if response.status_code >= 300:
+                print("GitHub trigger failed:", response.status_code, response.text)
+
+        except Exception as e:
+            print("Trigger error:", str(e))
+
+
+    trigger_gha_task = PythonOperator(
+        task_id="trigger_gha",
+        python_callable=trigger_gha,
     )
 
-    resolve_dataset_task >> train_and_build >> trigger_gitlab_task
+
+    resolve_dataset_task >> train_and_build >> trigger_gha_task
