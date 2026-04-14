@@ -8,7 +8,7 @@ import requests
 
 from kubernetes.client import V1Volume, V1VolumeMount, V1PersistentVolumeClaimVolumeSource
 
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = "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"
 GITHUB_OWNER = "petr-akimov"
 GITHUB_REPO = "otus-final"
 EVENT_TYPE = "trigger-model"
@@ -46,7 +46,6 @@ with DAG(
         secret='minio-credentials',
         key='AWS_SECRET_ACCESS_KEY',
     )
-
 
     def resolve_dataset(**context):
         dag_run = context.get("dag_run")
