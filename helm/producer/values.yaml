@@ -1,5 +1,5 @@
 image:
-  tag: latest   # repository удалён
+  tag: latest   
 
 kafka:
   bootstrap: kafka:9092
@@ -11,5 +11,5 @@ minio:
   secretKey: minio123
 
 config:
-  tps: "1000"
+  tps: "5"
   dataset: "a.csv"
