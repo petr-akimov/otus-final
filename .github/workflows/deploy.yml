@@ -1,10 +1,13 @@
-name: CI Pipeline
+name: Deploy Infrastructure
 
 on:
-  # ручной запуск (аналог when: manual)
   workflow_dispatch:
-
-  # внешний триггер (аналог trigger token)
+    inputs:
+      run_model:
+        description: 'Запустить job model (развернуть модель через Helm)?'
+        type: boolean
+        default: false
+  # repository_dispatch оставлен для внешнего триггера модели (как в оригинале)
   repository_dispatch:
     types: [trigger-model]
 
@@ -13,14 +16,9 @@ env:
   CHART_PATH: helm/consumer
 
 jobs:
-
-  # =========================
-  # INFRA (terraform)
-  # =========================
   infra:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-
+    if: github.event_name == 'workflow_dispatch'   # только при ручном запуске
     steps:
       - uses: actions/checkout@v4
 
@@ -44,24 +42,20 @@ jobs:
           terraform apply -auto-approve
           cp ingress.yaml ../
 
-      - name: Save artifacts
+      - name: Save artifacts (ingress and terraform state)
         uses: actions/upload-artifact@v4
         with:
-          name: infra-artifacts
+          name: infra-artifacts-${{ github.run_id }}
           path: |
             ingress.yaml
             tf/terraform.tfstate
             tf/.terraform.lock.hcl
+          retention-days: 7
 
-
-  # =========================
-  # DEPLOY
-  # =========================
   deploy:
     runs-on: ubuntu-latest
     needs: infra
     if: github.event_name == 'workflow_dispatch'
-
     steps:
       - uses: actions/checkout@v4
 
@@ -69,15 +63,14 @@ jobs:
         run: |
           curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
-
           sudo apt-get update
           sudo apt-get install -y kubectl
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      - name: Download artifacts
+      - name: Download artifacts from infra
         uses: actions/download-artifact@v4
         with:
-          name: infra-artifacts
+          name: infra-artifacts-${{ github.run_id }}
 
       - name: Inject GitHub token into DAG file
         run: |
@@ -85,11 +78,10 @@ jobs:
           TOKEN_ESCAPED=$(echo "${{ secrets.GH_TOKEN }}" | sed 's/[&/\]/\\&/g')
           sed -i "s/{{ GH_TOKEN }}/$TOKEN_ESCAPED/g" dags/drift_detection.py
 
-      - name: Deploy
+      - name: Deploy to Kubernetes
         run: |
           yc config set token "${{ secrets.YC_TOKEN }}"
           yc config set folder-id "${{ secrets.YC_FOLDER_ID }}"
-
           yc managed-kubernetes cluster get-credentials akimovp-cluster \
             --external --force --kubeconfig ./kube_config
 
@@ -105,24 +97,16 @@ jobs:
           kubectl -n otus wait --for=condition=ready pod -l app=airflow --timeout=600s --kubeconfig kube_config
 
           POD_NAME=$(kubectl -n otus get pods -l app=airflow -o name --kubeconfig kube_config | head -1 | cut -d/ -f2)
-
           kubectl cp dags/drift_detection.py otus/$POD_NAME:/opt/airflow/dags/drift_detection.py -c airflow --kubeconfig kube_config
-
-
-  # =========================
-  # MODEL (аналог GitLab trigger pipeline)
-  # =========================
-
 
   model:
     runs-on: ubuntu-latest
-
-    if: github.event_name == 'repository_dispatch' &&
-        github.event.client_payload.MODEL_VERSION != ''
-
+    # Запускается либо при ручном запуске с флагом run_model, либо по repository_dispatch
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.run_model == true) ||
+      (github.event_name == 'repository_dispatch' && github.event.client_payload.MODEL_VERSION != '')
     environment:
-      name: production   # ← ВОТ ЭТО ДЕЛАЕТ MANUAL APPROVE
-
+      name: production   # manual approval
     steps:
       - uses: actions/checkout@v4
 
@@ -130,20 +114,23 @@ jobs:
         run: |
           curl https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
-
           sudo apt-get update
           sudo apt-get install -y kubectl
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      - name: Deploy model
+      - name: Deploy model via Helm
         run: |
-          MODEL_VERSION=${{ github.event.client_payload.MODEL_VERSION }}
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            MODEL_VERSION="${{ github.event.client_payload.MODEL_VERSION }}"
+          else
+            # Для ручного запуска можно передать версию через input, здесь для примера фиксированная
+            MODEL_VERSION="latest"
+          fi
 
-          echo "Запуск деплоя модели версии v$MODEL_VERSION"
+          echo "Запуск деплоя модели версии v${MODEL_VERSION}"
 
           yc config set token "${{ secrets.YC_TOKEN }}"
           yc config set folder-id "${{ secrets.YC_FOLDER_ID }}"
-
           yc managed-kubernetes cluster get-credentials akimovp-cluster \
             --external --force --kubeconfig ./kube_config
 
@@ -153,33 +140,3 @@ jobs:
             --set image.tag=v${MODEL_VERSION} \
             --kubeconfig ./kube_config \
             --wait --timeout 5m
-
-
-  # =========================
-  # CLEANUP
-  # =========================
-  cleanup:
-    runs-on: ubuntu-latest
-    needs: infra
-    if: github.event_name == 'workflow_dispatch'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Terraform
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
-          unzip terraform_1.6.0_linux_amd64.zip
-          sudo mv terraform /usr/local/bin/
-
-      - name: Destroy
-        env:
-          TF_VAR_yc_token:     ${{ secrets.YC_TOKEN }}
-          TF_VAR_yc_cloud_id:  ${{ secrets.YC_CLOUD_ID }}
-          TF_VAR_yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
-        run: |
-          cd tf
-          terraform init
-          terraform destroy -auto-approve
