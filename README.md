@@ -29,14 +29,14 @@
 - **MinIO** — S3-совместимое хранилище
 - **PostgreSQL** — backend для Airflow
 - **HTTP POST-запрос в Airflow** — триггер переобучения
-- **HTTP POST-запрос в GitLab** — триггер развертывания модели новой версии
-- **GitLab CI/CD** — деплой
+- **HTTP POST-запрос в GHA** — триггер развертывания модели новой версии
+- **GitHub Actions** — деплой
 
 ---
 
-## Общая схема решения (Gitlab)
+## Общая схема решения (GitHub Actions)
 
-<img src="png/fraud_detection_platform_gitlab_ci_managed.png?raw=true" alt="Общая схема" title="Общая схема решения (Gitlab)" width="100%"> <br>
+<img src="png/fraud_detection_platform_gha_managed.png?raw=true" alt="Общая схема" title="Общая схема решения (GitHub Actions)" width="100%"> <br>
 
 ---
 
@@ -44,7 +44,7 @@
 
 | Компонент | Назначение |
 |----------|-----------|
-| GitLab | CI/CD |
+| GitHub Actions | CI/CD |
 | Yandex Cloud | Облачная среда для развертывания инфраструктуры и приложений |
 | Kafka | стриминг данных |
 | Airflow | orchestration |
@@ -118,13 +118,13 @@
 - выбор champion модели  
 - сборка Docker-образа  
 - публикация в registry  
-- запуск GitLab CI  
+- запуск GitHub Actions workflow  
 
 ---
 
 ### 4. Деплой
 
-**GitLab pipeline:**
+**GitHub Actions pipeline:**
 
 - деплоит в Kubernetes  
 - обновляет inference слой  
@@ -201,17 +201,17 @@
 
 ## Запуск проекта
 
-### 1. Подготовка проекта в Gitlab, регистрация Gitlab-Runner, добавление пользовательских переменных
-### 2. Запуск пайплайна в Gitlab, выполнение джоб infra и deploy
+### 1. Подготовка проекта в GitHub, добавление секретов, добавление Environment и Token
+### 2. Запуск Actions в GHA, выполнение джоб infra и deploy
 ### 3. Запуск DAG Airflow
-### 4. Ручное согласование запуска джобы model для развертывания модели
+### 4. Ручное согласование запуска Environment для развертывания модели
 ### 5. Cleanup удаление облачных ресурсов 
 
 ---
 
-## Сравнение с GitHub Actions
+## Сравнение с Gitlab-CI/CD
 
-<img src="png/table.png?raw=true" alt="Сравнение с GitHub Actions" title="Сравнение с GitHub Actions" width="100%"> <br>
+<img src="png/table.png?raw=true" alt="Сравнение с Gitlab" title="Сравнение с Gitlab" width="100%"> <br>
 
 ---
 
