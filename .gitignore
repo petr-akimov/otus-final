@@ -39,4 +39,4 @@ config.json
 tmp/*
 ppt
 ppt/img/*
-
+tmp/*.sh
