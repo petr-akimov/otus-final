@@ -7,7 +7,7 @@ import argparse
 import pandas as pd
 import numpy as np
 import joblib
-import lightgbm as lgb
+import xgboost as xgb
 import mlflow
 import mlflow.sklearn
 from mlflow.tracking import MlflowClient
@@ -76,27 +76,25 @@ def load_data(path: str):
 def train_model(X_train, y_train, X_val, y_val):
     print(f"Training model on {X_train.shape[1]} features, {len(X_train)} samples")
 
-    categorical_features = ['repeat_retailer', 'used_chip', 'used_pin_number', 'online_order']
+    scale_pos_weight = (len(y_train) - y_train.sum()) / y_train.sum()
 
-    model = lgb.LGBMClassifier(
+    model = xgb.XGBClassifier(
         n_estimators=200,
         max_depth=7,
         learning_rate=0.05,
-        num_leaves=31,
         subsample=0.8,
         colsample_bytree=0.8,
-        class_weight='balanced',
+        scale_pos_weight=scale_pos_weight,
         random_state=42,
-        verbose=-1,
-        n_jobs=-1
+        n_jobs=-1,
+        eval_metric='auc',
+        use_label_encoder=False
     )
 
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        eval_metric='auc',
-        categorical_feature=categorical_features,
-        callbacks=[lgb.early_stopping(10)]
+        verbose=False
     )
 
     return model
@@ -235,7 +233,8 @@ def main():
 
             model = train_model(X_train, y_train, X_val, y_val)
 
-            best_iteration = model.best_iteration_
+            #best_iteration = model.best_iteration_
+            best_iteration = getattr(model, "best_iteration_", None)
             print(f"Best iteration: {best_iteration}")
 
             metrics = evaluate(model, X_test, y_test)

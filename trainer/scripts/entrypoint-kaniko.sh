@@ -93,9 +93,6 @@ mkdir -p /kaniko/.docker
 cp /opt/consumer/config.json /kaniko/.docker/
 
 echo "Docker config created at /kaniko/.docker/config.json"
-#ls -la /kaniko/.docker/
-#cat /kaniko/.docker/config.json
-#ls -la /kaniko/executor || true
 echo "DATASET='$DATASET'"
 
 echo "=== BUILD & PUSH IMAGE ==="
@@ -113,32 +110,6 @@ echo "DATASET='$DATASET'"
   --destination=index.docker.io/petrakimovdocker/consumer:v${MODEL_VERSION} \
   --destination=index.docker.io/petrakimovdocker/consumer:latest \
   --cache=false --cleanup
-
-echo "=== BUILD & PUSH COMPLETED ==="
-
-
-#ls -la /kaniko/executor || true
-
-#echo "Mock build: /kaniko/executor with args ..."
-
-#/kaniko/executor --dockerfile=/app/workspace/Dockerfile --context=dir:///app/workspace --build-arg "DATASET=${DATASET}" --destination=index.docker.io/petrakimovdocker/consumer:v${MODEL_VERSION} --destination=index.docker.io/petrakimovdocker/consumer:latest --cache=false --cleanup
-
-#exec /kaniko/executor \
-#  --dockerfile=/app/workspace/Dockerfile \
-#  --context=dir:///app/workspace \
-#  --build-arg "DATASET=${DATASET}" \
-#  --destination=index.docker.io/petrakimovdocker/consumer:v${MODEL_VERSION} \
-#  --destination=index.docker.io/petrakimovdocker/consumer:latest \
-#  --cache=false --cleanup
-
-#/kaniko/executor \
-#  --dockerfile=/app/workspace/Dockerfile \
-#  --context=dir:///app/workspace \
-#  --build-arg DATASET=${DATASET} \  
-#  --destination=index.docker.io/petrakimovdocker/consumer:v${MODEL_VERSION} \
-#  --destination=index.docker.io/petrakimovdocker/consumer:latest \
-#  --cache=false --cleanup 
-
 
 echo "=== BUILD & PUSH COMPLETED ==="
 
