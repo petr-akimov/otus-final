@@ -36,3 +36,7 @@ notes.txt
 config.json
 *.tmp
 *.dist
+tmp/*
+ppt
+ppt/img/*
+
