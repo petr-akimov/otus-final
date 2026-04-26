@@ -38,6 +38,14 @@ spec:
               value: "{{ .Values.consumer.driftThreshold }}"
             - name: AIRFLOW_API
               value: {{ .Values.airflow.url }}
+            - name: BUFFER_SIZE
+              value: "{{ .Values.consumer.bufferSize }}"
+            - name: DRIFT_QUORUM
+              value: "{{ .Values.consumer.driftQuorum }}"
+            - name: DRIFT_VOTE_TTL
+              value: "{{ .Values.consumer.voteTtl }}"
+            - name: DRIFT_TRIGGER_TTL
+              value: "{{ .Values.consumer.triggerTtl }}"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT

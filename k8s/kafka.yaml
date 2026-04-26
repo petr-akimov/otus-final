@@ -116,6 +116,10 @@ spec:
               value: "input:6:1,predictions:6:1"
             - name: KAFKA_PORT
               value: "9092"                     
+            - name: KAFKA_LOG_CLEANER_ENABLE
+              value: "true"
+            - name: KAFKA_LOG_CLEANER_THREADS
+              value: "1"
           volumeMounts:
             - name: data
               mountPath: /kafka

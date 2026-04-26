@@ -1,0 +1,375 @@
+import os
+import json
+import logging
+import joblib
+import pandas as pd
+import requests
+import time
+import socket
+import threading
+import psutil  # <-- добавлен
+
+from kafka import KafkaConsumer, KafkaProducer, TopicPartition
+from requests.auth import HTTPBasicAuth
+
+from prometheus_client import start_http_server, Counter, Gauge, Histogram
+
+from evidently import ColumnMapping
+from evidently.report import Report
+from evidently.metric_preset import DataDriftPreset
+
+# ---------------- LOGGING ----------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("consumer")
+
+# ---------------- CONFIG ----------------
+KAFKA = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
+
+INPUT_TOPIC = os.getenv("KAFKA_INPUT_TOPIC", "input")
+OUTPUT_TOPIC = os.getenv("KAFKA_OUTPUT_TOPIC", "predictions")
+
+DRIFT_SIGNALS = "drift-signals"
+DRIFT_DECISIONS = "drift-decisions"
+
+GROUP_ID = "consumer-group"
+LEADER_GROUP = "leader-election"
+
+BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", "500"))
+QUORUM = int(os.getenv("DRIFT_QUORUM", "4"))
+VOTE_TTL = int(os.getenv("DRIFT_VOTE_TTL", "300"))
+TRIGGER_TTL = int(os.getenv("DRIFT_TRIGGER_TTL", "600"))
+DRIFT_THRESHOLD = float(os.getenv("DRIFT_THRESHOLD", "0.5"))
+
+AIRFLOW_API = os.getenv("AIRFLOW_API")
+
+MODEL_PATH = "model.joblib"
+INSTANCE_ID = socket.gethostname()
+DATASET = os.getenv("DATASET", "a.csv")
+
+# S3 / MinIO
+storage_options = {
+    "key": os.getenv("AWS_ACCESS_KEY_ID"),
+    "secret": os.getenv("AWS_SECRET_ACCESS_KEY"),
+    "client_kwargs": {
+        "endpoint_url": os.getenv("S3_ENDPOINT"),
+        "verify": False
+    }
+}
+
+# ---------------- PROMETHEUS ----------------
+PREDICTIONS = Counter("predictions_total", "Total predictions")
+FRAUD_PREDICTIONS = Counter("fraud_predictions_total", "Fraud predictions")
+DRIFT_EVENTS = Counter("drift_events_total", "Drift detections")
+DRIFT_STATE = Gauge("dataset_drift", "Dataset drift detected (1=True, 0=False)")
+PIPELINE_LATENCY = Histogram("pipeline_latency_seconds", "Full pipeline latency: consume → predict → produce")
+
+CPU_USAGE = Gauge("cpu_usage_percent", "CPU usage percent")
+MEMORY_USAGE = Gauge("memory_usage_bytes", "Memory usage bytes")
+MEMORY_USAGE_PERCENT = Gauge("memory_usage_percent", "Memory usage percent")
+
+KAFKA_LAG = Gauge("kafka_consumer_lag", "Kafka consumer lag", ["topic", "partition"])
+KAFKA_CURRENT_OFFSET = Gauge("kafka_current_offset", "Current consumer offset", ["topic", "partition"])
+KAFKA_END_OFFSET = Gauge("kafka_end_offset", "Latest offset in topic", ["topic", "partition"])
+
+start_http_server(8000)
+
+# ---------------- MODEL ----------------
+model = joblib.load(MODEL_PATH)
+logger.info(f"[INIT] instance={INSTANCE_ID}")
+
+# ---------------- REFERENCE ----------------
+def load_reference():
+    try:
+        df = pd.read_csv(f"s3://datasets/{DATASET}", storage_options=storage_options)
+
+        for col in ["fraud", "transaction_id", "timestamp"]:
+            if col in df.columns:
+                df = df.drop(columns=[col])
+
+        return df.fillna(0)
+
+    except Exception as e:
+        logger.error(f"[REFERENCE ERROR] {e}")
+        return None
+
+
+reference_df = load_reference()
+
+# ---------------- KAFKA ----------------
+consumer = KafkaConsumer(
+    INPUT_TOPIC,
+    bootstrap_servers=KAFKA,
+    group_id=GROUP_ID,
+    value_deserializer=lambda x: json.loads(x.decode()),
+    auto_offset_reset="latest"
+)
+
+producer = KafkaProducer(
+    bootstrap_servers=KAFKA,
+    value_serializer=lambda x: json.dumps(x).encode()
+)
+
+# ---------------- KAFKA LAG FUNCTION ----------------
+def update_kafka_lag():
+    """
+    Calculates lag = end_offset - current_offset
+    and publishes to Prometheus
+    """
+    try:
+        partitions = consumer.assignment()
+
+        if not partitions:
+            return
+
+        end_offsets = consumer.end_offsets(partitions)
+
+        for tp in partitions:
+            current_offset = consumer.position(tp)
+            end_offset = end_offsets.get(tp, 0)
+
+            lag = end_offset - current_offset
+
+            KAFKA_LAG.labels(
+                topic=tp.topic,
+                partition=str(tp.partition)
+            ).set(lag)
+
+            KAFKA_CURRENT_OFFSET.labels(
+                topic=tp.topic,
+                partition=str(tp.partition)
+            ).set(current_offset)
+
+            KAFKA_END_OFFSET.labels(
+                topic=tp.topic,
+                partition=str(tp.partition)
+            ).set(end_offset)
+
+    except Exception as e:
+        logger.error(f"[KAFKA LAG ERROR] {e}")
+
+# ---------------- DRIFT ----------------
+def detect_drift(df_current):
+    if reference_df is None:
+        return False
+
+    try:
+        mapping = ColumnMapping()
+        mapping.numerical_features = list(reference_df.columns)
+
+        report = Report(metrics=[DataDriftPreset()])
+        report.run(reference_data=reference_df, current_data=df_current, column_mapping=mapping)
+
+        drift_score = report.as_dict()["metrics"][0]["result"]["dataset_drift"]
+        logger.info(f"[DRIFT] score={drift_score}")
+
+        return drift_score > DRIFT_THRESHOLD
+
+    except Exception as e:
+        logger.error(f"[DRIFT ERROR] {e}")
+        return False
+
+# ---------------- AIRFLOW ----------------
+def trigger_dag():
+    if not AIRFLOW_API:
+        return
+
+    try:
+        logger.info("[AIRFLOW] 🚀 TRIGGER DAG")
+
+        requests.post(
+            AIRFLOW_API,
+            json={"conf": {"dataset": DATASET}},
+            auth=HTTPBasicAuth("admin", "admin"),
+            timeout=5
+        )
+
+    except Exception as e:
+        logger.error(f"[AIRFLOW ERROR] {e}")
+
+# ---------------- STATE ----------------
+class LeaderState:
+    def __init__(self):
+        self.is_leader = False
+        self.votes = {}
+        self.last_trigger_time = 0
+
+leader_state = LeaderState()
+
+# ---------------- CONSUMERS ----------------
+def create_decision_consumer():
+    return KafkaConsumer(
+        DRIFT_DECISIONS,
+        bootstrap_servers=KAFKA,
+        group_id=LEADER_GROUP,
+        enable_auto_commit=True
+    )
+
+def create_signal_consumer():
+    consumer = KafkaConsumer(
+        bootstrap_servers=KAFKA,
+        value_deserializer=lambda x: json.loads(x.decode()),
+        auto_offset_reset="latest"
+    )
+
+    # ждать появления топика
+    for _ in range(30):
+        partitions = consumer.partitions_for_topic(DRIFT_SIGNALS)
+        if partitions:
+            consumer.assign([TopicPartition(DRIFT_SIGNALS, p) for p in partitions])
+            logger.info(f"[LEADER] assigned ALL partitions: {partitions}")
+            return consumer
+        time.sleep(1)
+
+    logger.error("[LEADER] drift-signals topic not found")
+    return None
+
+# ---------------- LEADER LOOP ----------------
+def leader_loop():
+    decision_consumer = None
+    signal_consumer = None
+
+    logger.info("[LEADER] loop started")
+
+    while True:
+        try:
+            # --- ensure decision consumer exists ---
+            if decision_consumer is None:
+                decision_consumer = create_decision_consumer()
+
+            decision_consumer.poll(timeout_ms=1000)
+            assignment = decision_consumer.assignment()
+
+            is_now_leader = any(tp.partition == 0 for tp in assignment)
+
+            # -------- became leader --------
+            if is_now_leader and not leader_state.is_leader:
+                logger.info("[ROLE] ✅ became LEADER")
+
+                leader_state.is_leader = True
+                leader_state.votes = {}
+                leader_state.last_trigger_time = 0
+
+                signal_consumer = create_signal_consumer()
+
+            # -------- lost leader --------
+            elif not is_now_leader and leader_state.is_leader:
+                logger.info("[ROLE] ❌ lost leadership")
+
+                leader_state.is_leader = False
+
+                if signal_consumer:
+                    signal_consumer.close()
+                    signal_consumer = None
+
+                if decision_consumer:
+                    decision_consumer.close()
+                    decision_consumer = None
+
+                continue
+
+            # -------- leader work --------
+            if leader_state.is_leader and signal_consumer:
+                records = signal_consumer.poll(timeout_ms=500)
+
+                for _, msgs in records.items():
+                    for msg in msgs:
+                        data = msg.value
+                        leader_state.votes[data["instance"]] = data["ts"]
+
+                # TTL очистка
+                now = time.time()
+                leader_state.votes = {
+                    k: v for k, v in leader_state.votes.items()
+                    if now - v < VOTE_TTL
+                }
+
+                count = len(leader_state.votes)
+                logger.info(f"[LEADER] votes={count}/{QUORUM}")
+
+                if count >= QUORUM:
+                    if now - leader_state.last_trigger_time > TRIGGER_TTL:
+                        logger.info("[LEADER] 🚀 TRIGGER")
+
+                        producer.send(DRIFT_DECISIONS, {
+                            "event": "trigger",
+                            "ts": now,
+                            "votes": count
+                        })
+
+                        trigger_dag()
+                        leader_state.last_trigger_time = now
+                    else:
+                        logger.info("[LEADER] cooldown active")
+
+        except Exception as e:
+            logger.error(f"[LEADER ERROR] {e}")
+
+            # полный reset consumers
+            if decision_consumer:
+                decision_consumer.close()
+                decision_consumer = None
+
+            if signal_consumer:
+                signal_consumer.close()
+                signal_consumer = None
+
+            leader_state.is_leader = False
+
+            time.sleep(2)
+
+# ---------------- START THREAD ----------------
+threading.Thread(target=leader_loop, daemon=True).start()
+
+# ---------------- MAIN LOOP ----------------
+buffer = []
+
+logger.info("[START] consuming input")
+
+for msg in consumer:
+    start_time = time.time()
+    try:
+        data = msg.value
+        df = pd.DataFrame([data])
+
+        pred = model.predict(df)[0]
+        proba = model.predict_proba(df)[0][1]
+
+        producer.send(OUTPUT_TOPIC, {
+            "prediction": int(pred),
+            "probability": float(proba)
+        })
+
+        # ---------------- PROMETHEUS METRICS ----------------
+        PREDICTIONS.inc()
+        if pred == 1:
+            FRAUD_PREDICTIONS.inc()
+
+        # Метрики ресурсов
+        CPU_USAGE.set(psutil.cpu_percent())
+        MEMORY_USAGE.set(psutil.virtual_memory().used)
+        MEMORY_USAGE_PERCENT.set(psutil.virtual_memory().percent)
+
+        # Kafka lag
+        update_kafka_lag()
+
+        buffer.append(data)
+
+        if len(buffer) >= BUFFER_SIZE:
+            df_buffer = pd.DataFrame(buffer).fillna(0)
+
+            drift_detected = detect_drift(df_buffer)
+            DRIFT_STATE.set(1 if drift_detected else 0)
+
+            if drift_detected:
+                DRIFT_EVENTS.inc()
+                producer.send(DRIFT_SIGNALS, {
+                    "instance": INSTANCE_ID,
+                    "ts": time.time()
+                })
+
+            buffer.clear()
+
+        PIPELINE_LATENCY.observe(time.time() - start_time)
+
+    except Exception as e:
+        logger.error(f"[ERROR] {e}")

@@ -71,7 +71,7 @@ with DAG(
         task_id='train-and-build',
         name='train-and-build',
         namespace='otus',
-        image='petrakimovdocker/trainer:v5',
+        image='petrakimovdocker/trainer:latest',
         image_pull_policy='IfNotPresent',
         service_account_name='airflow',
 

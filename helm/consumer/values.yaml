@@ -1,7 +1,7 @@
 replicaCount: 4
 
 image:
-  tag: latest   # было repository + tag, теперь только tag
+  tag: latest  
 
 kafka:
   broker: kafka:9092
@@ -10,6 +10,10 @@ kafka:
 
 consumer:
   driftThreshold: 0.5
+  bufferSize: 500
+  driftQuorum: 4
+  voteTtl: 300
+  triggerTtl: 600
 
 airflow:
   url: http://airflow:8080/api/v1/dags/model_training/dagRuns

@@ -50,36 +50,27 @@ data:
         },
         {
           "id": 4,
-          "title": "Replicas (current)",
-          "type": "stat",
-          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
-          "targets": [
-            {"expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}"}
-          ]
-        },
-        {
-          "id": 5,
           "title": "Memory Usage per pod (%)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
           "targets": [
             {"expr": "memory_usage_percent{namespace=\"otus\", pod=~\"consumer.*\"}", "legendFormat": "{{pod}}"}
           ]
         },
         {
-          "id": 6,
+          "id": 5,
           "title": "Dataset Drift (0/1)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 8},
           "targets": [
             {"expr": "dataset_drift", "legendFormat": "drift"}
           ]
         },
         {
-          "id": 7,
+          "id": 6,
           "title": "Pipeline Latency p95 (sec)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 8},
           "targets": [
             {
               "expr": "histogram_quantile(0.95, rate(pipeline_latency_seconds_bucket[5m]))",
@@ -89,48 +80,24 @@ data:
         },
 
         {
-          "id": 8,
+          "id": 7,
           "title": "Replicas over time",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8},
           "targets": [
             {"expr": "kube_deployment_status_replicas{deployment=\"consumer\", namespace=\"otus\"}"}
           ]
         },
 
         {
-          "id": 9,
+          "id": 8,
           "title": "Kafka Lag (current)",
           "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8},
           "targets": [
             {
               "expr": "sum(kafka_consumer_lag)",
               "legendFormat": "lag"
-            }
-          ]
-        },
-        {
-          "id": 10,
-          "title": "Kafka Lag per partition",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
-          "targets": [
-            {
-              "expr": "kafka_consumer_lag",
-              "legendFormat": "{{partition}}"
-            }
-          ]
-        },
-        {
-          "id": 11,
-          "title": "Kafka Lag growth (lag per time)",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
-          "targets": [
-            {
-              "expr": "rate(kafka_consumer_lag[1m])",
-              "legendFormat": "lag_rate"
             }
           ]
         }
