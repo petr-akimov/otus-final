@@ -38,3 +38,6 @@ config.json
 *.dist
 tmp/*
 tmp/*.sh
+tmp
+tmp2
+*.joblib
