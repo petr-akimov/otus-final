@@ -31,7 +31,7 @@
 - **PostgreSQL** — backend для Airflow
 - **HTTP POST-запрос в Airflow** — триггер переобучения
 - **HTTP POST-запрос в Github** — триггер развертывания модели новой версии
-- **GHA** — деплой
+- **Github Actions (GHA)** — деплой
 
 ---
 
@@ -104,16 +104,21 @@
 - выбор champion модели  
 - сборка Docker-образа  
 - публикация в registry  
-- запуск GitLab CI  
+- запуск Github Actions  
 
 ---
 
 ### 4. Деплой
 
-**GitLab pipeline:**
+**GHA workflow deploy:**
 
-- деплоит в Kubernetes  
+- разворачивает k8s 
+- деплоит в k8s  
 - обновляет inference слой  
+
+**GHA workflow cleanup:**
+
+- удаляет инфраструктуру
 
 ---
 
