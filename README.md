@@ -212,8 +212,11 @@
 
 ## Сравнение двух подходов к организации блокировки множественного запуска переобучения модели анти-фрод при обнаружении сдвига данных
 
-<img src="png/redis.png?raw=true" alt="Сценарий с Redis" title="Сценарий с Redis" width="100%"> <br>
-<img src="png/kafka.png?raw=true" alt="Сценарий с Kafka" title="Сценарий с Kafka" width="100%"> <br>
+<img src="png/scenario1.png?raw=true" alt="Сценарий с Redis" title="Сценарий с Redis" width="100%"> <br>
+
+---
+
+<img src="png/scenario2.png?raw=true" alt="Сценарий с Kafka" title="Сценарий с Kafka" width="100%"> <br>
 
 ---
 
