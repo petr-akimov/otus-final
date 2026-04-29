@@ -36,7 +36,10 @@ jobs:
           TF_VAR_yc_cloud_id:  ${{ secrets.YC_CLOUD_ID }}
           TF_VAR_yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
         run: |
-          cd tf && echo 'disable_signature_verification = true' > ./no_verify.hcl && TF_CLI_CONFIG_FILE="./no_verify.hcl" terraform init
+          cd tf
+          echo 'disable_signature_verification = true' > no_verify.hcl
+          export TF_CLI_CONFIG_FILE="$(pwd)/no_verify.hcl"
+          terraform init
           terraform validate
           terraform apply -auto-approve
           cp ingress.yaml ../
