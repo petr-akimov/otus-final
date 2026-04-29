@@ -101,6 +101,9 @@ jobs:
 
           POD_NAME=$(kubectl -n otus get pods -l app=airflow -o name --kubeconfig kube_config | head -1 | cut -d/ -f2)
           kubectl cp dags/drift_detection.py otus/$POD_NAME:/opt/airflow/dags/drift_detection.py -c airflow --kubeconfig kube_config
+          
+          helm upgrade --install consumer helm/consumer -n otus --set image.repository=petrakimovdocker/consumer --set image.tag=latest --kubeconfig kube_config
+          helm upgrade --install producer helm/producer -n otus --set image.repository=petrakimovdocker/producer --set image.tag=latest --kubeconfig kube_config
 
   model:
     runs-on: ubuntu-latest
