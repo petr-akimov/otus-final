@@ -59,3 +59,11 @@ resource "yandex_dns_recordset" "a_minio_console" {
   ttl     = 300
   data    = [yandex_vpc_address.static_ip.external_ipv4_address[0].address]
 }
+
+resource "yandex_dns_recordset" "a_kafka" {
+  zone_id = yandex_dns_zone.main_zone.id
+  name    = "kafka.akimovp.ru."
+  type    = "A"
+  ttl     = 300
+  data    = [yandex_vpc_address.static_ip.external_ipv4_address[0].address]
+}
