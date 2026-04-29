@@ -39,5 +39,5 @@ jobs:
           TF_VAR_yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
         run: |
           # Если state скачан, инициализируем локально (без удалённого бэкенда)
-          cd tf && TF_DISABLE_SIGNATURE_VERIFICATION=1 terraform init -reconfigure
+          cd tf && echo 'disable_signature_verification = true' > ./no_verify.hcl && TF_CLI_CONFIG_FILE="./no_verify.hcl" terraform init -reconfigure
           terraform destroy -auto-approve
