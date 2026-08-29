@@ -1,155 +1,149 @@
-### Итоговый проект курса OTUS
-# Подходы к организации блокировки множественного запуска переобучения модели анти-фрод при обнаружении сдвига данных
+### OTUS Course Final Project
+# Approaches to Locking Multiple Retraining Triggers for Anti-Fraud Models upon Data Drift Detection
 
-## Описание проекта
+## Project Overview
 
-Данный проект реализует end-to-end MLOps pipeline для задачи антифрода (поиск мошеннических транзакций) с использованием стриминговой обработки данных, мониторинга дрифта и автоматического переобучения модели.
+This project implements an end-to-end MLOps pipeline for anti-fraud detection (identifying fraudulent transactions) using streaming data processing, data drift monitoring, and automated model retraining.
 
-Система построена на базе Kubernetes (Managed Service for Kubernetes) и покрывает полный жизненный цикл ML-модели:
-- ingestion данных
-- онлайн-инференс
-- мониторинг качества
-- детектирование дрифта
-- автоматическое переобучение
-- деплой новой модели
-- ручная настройка интенсивности потока TPS и сдвига данных
-
----
-
-## Архитектура
-
-### Основные компоненты
-
-- **Kafka** — транспорт данных (топики input / predictions), формирование кворума и блокировки (топики drift-signals/drift-decisions)
-- **Redis** — голосование, блокировка 
-- **Producer** — отправка данных из датасета в Kafka
-- **Consumer (HPA 4–6 pod)** — онлайн-инференс модели
-- **MLflow** — трекинг экспериментов и моделей
-- **Airflow** — оркестрация пайплайнов
-- **Evidently** — мониторинг дрифта данных
-- **MinIO** — S3-совместимое хранилище
-- **PostgreSQL** — backend для Airflow
-- **HTTP POST-запрос в Airflow** — триггер переобучения
-- **HTTP POST-запрос в Github** — триггер развертывания модели новой версии
-- **Github Actions (GHA)** — деплой
+The system is built on top of Kubernetes (Managed Service for Kubernetes) and covers the complete ML model lifecycle:
+- Data ingestion
+- Online inference
+- Quality monitoring
+- Drift detection
+- Automated retraining
+- New model deployment
+- Manual adjustment of throughput intensity (TPS) and data drift
 
 ---
 
-## Общая схема решения 
+## Architecture
 
-<img src="png/schema.png?raw=true" alt="Общая схема" title="Общая схема решения" width="100%"> <br>
+### Main Components
+
+- **Kafka** — data transport (`input` / `predictions` topics), quorum consensus, and locking (`drift-signals` / `drift-decisions` topics)
+- **Redis** — voting mechanism, distributed locking
+- **Producer** — streams dataset records into Kafka
+- **Consumer (HPA 4–6 pods)** — online model inference
+- **MLflow** — experiment and model tracking
+- **Airflow** — pipeline orchestration
+- **Evidently** — data drift monitoring
+- **MinIO** — S3-compatible object storage
+- **PostgreSQL** — backend storage for Airflow
+- **HTTP POST Request to Airflow** — triggers model retraining
+- **HTTP POST Request to GitHub** — triggers deployment of the new model version
+- **GitHub Actions (GHA)** — automated CI/CD deployment
 
 ---
 
-## Структура репозитория
+## High-Level System Architecture
+
+<img src="png/schema.png?raw=true" alt="General Schema" title="High-Level Solution Architecture" width="100%"> <br>
+
+---
+
+## Repository Structure
 
 ```bash
 .
-├── k8s/                # Kubernetes-манифесты инфраструктуры
+├── k8s/                # Kubernetes manifests for infrastructure
 ├── dags/               # Airflow DAGs
-├── producer/           # Исходный код для сборки образа producer 
-├── helm/               # Helm-чарты producer/consumer
-├── monitoring/         # Kubernetes-манифесты мониторинга
-├── png/                # Схемы, картинки, оформление
-├── tf/                 # terraform-манифесты 
-├── trainer/            # Исходный код trainer (обучение модели для consumer, A/B-тест, публикация)
-└── README.md           # Данный файл
+├── producer/           # Source code for building the producer container image
+├── helm/               # Helm charts for producer/consumer
+├── monitoring/         # Kubernetes manifests for monitoring stack
+├── png/                # Diagrams, images, and visual assets
+├── tf/                 # Terraform manifests for cloud provisioning
+├── trainer/            # Source code for trainer (model training, A/B testing, publishing)
+└── README.md           # This file
 ```
-
 ---
+## Data Flow
 
-## Поток данных
+### 1. Baseline Scenario
 
-### 1. Базовый сценарий
-
-- Producer читает `a.csv` из MinIO  
-- Отправляет данные в Kafka (`input`)  
+- Producer reads `a.csv` from MinIO  
+- Sends records into Kafka (`input`)  
 
 **Consumer:**
-- читает сообщения 
-- делает предсказания  
-- пишет результат в `predictions`  
+- Reads messages from Kafka  
+- Performs inference  
+- Writes results to `predictions`  
 
 **Evidently:**
-- сравнивает поток с референсом (`a.csv`)  
-- мониторит drift на основе буфера сообщений (по умолчанию 500)
+- Compares the live stream against the baseline reference (`a.csv`)  
+- Monitors drift based on a message buffer (default window: 500)
 
 ---
 
-### 2. Drift + переобучение
+### 2. Data Drift & Retraining Trigger
 
-- Пользователь меняет helm/producer/values.yaml:  
+- User updates `helm/producer/values.yaml`:  
   `a.csv → b.csv`  
-- Producer начинает отправлять данные (заранее подготовленные, с data drift)   
-- Evidently фиксирует **data drift**  
-- Триггерится Airflow DAG переобучения  
-- Пользователь наблюдает в мониторинге:
-    * data drift 0 → 1
-- Пользователь получает уведомления в мессенджер Telegram:
-    * Drift state change
-
-
+- Producer begins streaming new data containing pre-configured data drift  
+- Evidently detects **data drift**  
+- Retraining Airflow DAG is triggered  
+- User observes in the monitoring dashboard:
+    * Data drift metric shifts from 0 → 1
+- User receives notifications in Telegram:
+    * Drift state change alert
 
 ---
 
-### 3. Пайплайн переобучения (Airflow)
+### 3. Retraining Pipeline (Airflow)
 
-**DAG выполняет:**
+**The DAG executes the following steps:**
 
-- загрузка данных из MinIO  
-- обучение модели  
-- логирование в MLflow  
-- валидация  
-- A/B тест  
-- выбор champion модели  
-- сборка Docker-образа  
-- публикация в registry  
-- запуск Github Actions  
+- Load target dataset from MinIO  
+- Train model  
+- Log metrics and artifacts to MLflow  
+- Validate performance  
+- Run A/B test simulation  
+- Select champion model  
+- Build container image  
+- Push to container registry  
+- Trigger GitHub Actions workflow  
 
 ---
 
-### 4. Деплой
+### 4. Deployment
 
 **GHA workflow deploy:**
 
-- разворачивает k8s 
-- деплоит в k8s  
-- обновляет inference слой  
+- Provisions Kubernetes resources  
+- Deploys manifests to Kubernetes  
+- Updates the inference layer  
 
 **GHA workflow cleanup:**
 
-- удаляет инфраструктуру
+- Destroys cloud infrastructure  
 
 ---
 
-### 5. Рост и падение интенсивности (TPS)
+### 5. Load Spikes and Throughput Variations (TPS)
 
-- Пользователь меняет helm/producer/values.yaml:  
+- User updates `helm/producer/values.yaml`:  
   `tps: "5" → "100"`  
-- Producer начинает отправлять данные с бОльшим TPS   
-- Пользователь наблюдает в мониторинге:
-    * рост реплик пода
-    * рост утилизации CPU
-    * рост очереди Kafka (Kafka lag)
-- Пользователь получает уведомления в мессенджер Telegram:
-    * очередь Kafka выросла значительно
-    * Утилизация CPU реплик под превысила пороговые значения
-
+- Producer starts emitting messages at a significantly higher TPS rate  
+- User observes in the monitoring dashboard:
+    * Increase in pod replicas
+    * CPU utilization spike
+    * Kafka consumer lag growth
+- User receives notifications in Telegram:
+    * Alert: Kafka lag exceeded threshold
+    * Alert: CPU utilization across replicas breached limits
 
 ---
 
-<img src="png/tg.png?raw=true" alt="Телеграм" title="Телеграм" width="30%"> <br>
+<img src="png/tg.png?raw=true" alt="Telegram" title="Telegram Notifications" width="30%"> <br>
 
 ---
 
 <img src="png/grafana.png?raw=true" alt="Grafana -- OTUS Monitoring" title="Grafana -- OTUS Monitoring" width="100%"> <br>
 
-
 ---
 
-## Kubernetes инфраструктура
+## Kubernetes Infrastructure
 
-**Разворачиваются:**
+**Deploys the following components:**
 
 - Kafka + Zookeeper  
 - PostgreSQL  
@@ -157,42 +151,42 @@
 - MLflow  
 - MinIO  
 - Kafka UI  
-- Producer / Consumer  
+- Producer / Consumer workloads  
 
 ---
 
-## Мониторинг
+## Monitoring
 
-### OTUS dashboard
+### OTUS Dashboard
 
-**Отслеживает:**
-- data drift  
-- утилизация CPU
-- утилизация Memory
-- количество реплик
-- Kafka lag
-- Пропускная способность (TPS)   
-- Fraud rate
-- latency P95
+**Monitored Metrics:**
+- Data drift status  
+- CPU utilization  
+- Memory utilization  
+- Active pod replica count  
+- Kafka lag  
+- Throughput (TPS)  
+- Fraud detection rate  
+- P95 Latency  
 
 ---
 
-## ML модель
+## ML Model Details
 
-- Задача: binary classification (fraud / non-fraud)  
-- Алгоритм: XGBoost  
+- Task: Binary classification (fraud vs. non-fraud)  
+- Algorithm: XGBoost  
 
-**Метрики:**
+**Evaluated Metrics:**
 - ROC-AUC  
 - Precision / Recall  
 - F1-score  
-- кастомная метрика ROC-AUC + min_inference_time (используется для выбора алгоритма)
+- Custom composite metric: `ROC-AUC + min_inference_time` (used for candidate selection)
 
 ---
 
-## Docker
+## Containerization (Docker)
 
-**Контейнеризированы:**
+**Containerized Workloads:**
 
 - producer  
 - consumer  
@@ -200,44 +194,47 @@
 
 ---
 
-## Запуск проекта
+## Execution Guide
 
-### 1. Подготовка проекта в Github, добавление пользовательских переменных, настройка токена тригера и environments
-### 2. Запуск workflow в GHA, выполнение джоб infra и deploy
-### 3. Запуск DAG Airflow
-### 4. Ручное согласование запуска джобы model для развертывания модели
-### 5. Cleanup удаление облачных ресурсов 
-
----
-
-## Сравнение двух подходов к организации блокировки множественного запуска переобучения модели анти-фрод при обнаружении сдвига данных
-
-<img src="png/scenario1.png?raw=true" alt="Сценарий с Redis" title="Сценарий с Redis" width="100%"> <br>
+### 1. Prepare GitHub repository, configure secrets, trigger tokens, and environment variables
+### 2. Trigger GHA workflows to run `infra` and `deploy` jobs
+### 3. Execute the Airflow DAG
+### 4. Manually approve the `model` deployment job gate
+### 5. Run `cleanup` workflow to tear down cloud resources
 
 ---
 
-<img src="png/scenario2.png?raw=true" alt="Сценарий с Kafka" title="Сценарий с Kafka" width="100%"> <br>
+## Comparison of Two Locking Approaches to Prevent Concurrent Retraining Triggers Upon Data Drift Detection
+
+<img src="png/scenario1.png?raw=true" alt="Redis Scenario" title="Redis Locking Strategy" width="100%"> <br>
 
 ---
 
-## Сравнительная таблица
-
-| Критерий | Подход через Redis (`consumer.redis`) | Подход через Kafka (`consumer.kafka`) |
-|----------|----------------------------------------|----------------------------------------|
-| **Механизм координации** | Атомарная установка флага в Redis (quorum голосов → `setnx` с TTL) | Выборы лидера через consumer group, лидер собирает голоса из топика `drift-signals` |
-| **Внешние зависимости** | Redis (обязателен) | Только Kafka (дополнительные топики) |
-| **Сложность реализации** | Низкая (несколько команд Redis) | Средняя/высокая (управление лидерством, два consumer'а, обработка перевыборов) |
-| **Управление TTL голосов** | TTL ключей Redis (автоматическое удаление) | Лидер вручную фильтрует голоса по временным меткам |
-| **Устранение дублирующих триггеров** | Глобальный флаг `drift:trigger` с TTL | Лидер проверяет `last_trigger_time` и соблюдает cooldown |
-| **Масштабируемость** | Операция `keys` может стать узким местом при большом числе инстансов | За счёт лидера – более предсказуемо, но лидер может быть узким звеном |
-| **Однородность стека** | Требуется поддержка Redis отдельно | Полностью в экосистеме Kafka (если она уже используется) |
+<img src="png/scenario2.png?raw=true" alt="Kafka Scenario" title="Kafka Locking Strategy" width="100%"> <br>
 
 ---
 
-## Выводы
+## Comparative Matrix
 
-Оба подхода успешно предотвращают множественные запуски Airflow DAG при обнаружении дрейфа данных в параллельных consumer'ах. Реализация на Redis проще, использует атомарную операцию `setnx` (установить ключ, только если он не установлен на данный момент Set if Not eXists) для глобальной блокировки и TTL для автоматического сброса состояния, но зависит от внешнего Redis и операции `keys`. Реализация на Kafka полностью автономна (не требует Redis) и строит распределённую координацию через выделенного лидера и дополнительные топики, однако сложнее в реализации и поддержке. Выбор конкретного решения определяется наличием Redis в инфраструктуре и требованиями к сложности процессов и стека.
+| Evaluation Criterion | Redis Approach (`consumer.redis`) | Kafka Approach (`consumer.kafka`) |
+|----------------------|-----------------------------------|-----------------------------------|
+| **Coordination Mechanism** | Atomic flag assignment in Redis (quorum consensus → `setnx` with TTL) | Leader election via consumer group; leader aggregates votes from `drift-signals` topic |
+| **External Dependencies** | Requires Redis instance | Pure Kafka (uses dedicated topics) |
+| **Implementation Complexity** | Low (uses standard atomic Redis commands) | Medium/High (handles leader election, dual consumer loops, rebalance handling) |
+| **Vote TTL Management** | Handled natively via Redis key expiration (TTL) | Leader manually filters stale votes using event timestamps |
+| **Duplicate Trigger Mitigation** | Global `drift:trigger` flag with TTL enforcement | Leader tracks `last_trigger_time` and enforces a cooldown window |
+| **Scalability** | `KEYS` scanning operations can become a bottleneck with high pod counts | Scalable via leader delegation, though the single leader node handles evaluation |
+| **Tech Stack Homogeneity** | Requires managing and operating a separate Redis cluster | Fully embedded within the Kafka ecosystem (if Kafka is already present) |
 
+---
 
+## Key Takeaways
+
+Both strategies effectively prevent duplicate Airflow DAG triggers when data drift is detected simultaneously across distributed consumers. 
+
+- **Redis implementation** is simpler, leveraging atomic `setnx` (*Set if Not eXists*) operations for global locking alongside TTL auto-cleanup, but introduces a runtime dependency on Redis and `KEYS` lookup operations.
+- **Kafka implementation** is fully self-contained (eliminating Redis dependencies) by establishing distributed consensus via a leader consumer and dedicated topics, though it introduces greater architectural and code complexity.
+
+The optimal choice depends on whether Redis is already part of your infrastructure stack and your team's preference regarding system complexity versus stack footprint.
 
 
