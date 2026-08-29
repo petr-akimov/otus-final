@@ -1,5 +1,5 @@
 ### OTUS Course Final Project
-# Approaches to Locking Multiple Retraining Triggers for Anti-Fraud Models upon Data Drift Detection
+# Kubernetes-based Fraud Detection System in Action
 
 ## Project Overview
 
