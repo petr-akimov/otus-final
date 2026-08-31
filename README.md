@@ -38,75 +38,75 @@ The system is built on top of Kubernetes (Managed Service for Kubernetes) and co
 ## High-Level Design
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph GitHubActions["GitHub Actions (CI/CD)"]
-        subgraph DeployWorkflow["Workflow: deploy"]
-            Infra["Job: infra"]
-            Deploy["Job: deploy"]
-            ModelJob["Job: model"]
-        end
-        subgraph CleanupWorkflow["Workflow: cleanup"]
-            Cleanup["Job: cleanup"]
-        end
+        direction TB
+        InfraJob["infra"]
+        DeployJob["deploy"]
+        ModelJob["model"]
+        CleanupJob["cleanup"]
     end
     
     subgraph YandexCloud["Yandex Cloud / k8s"]
-        subgraph Pods["Pods"]
+        direction TB
+        
+        subgraph Service["Service"]
             Producer["Producer"]
-            Consumer["Consumer<br/>(HPAA 4-6)"]
+            Consumer["Consumer<br/>(HPA 4-6)"]
             Champion["champion"]
+            Drift["drift"]
         end
         
         Kafka["Kafka"]
+        Redis["Redis"]
+        Airflow["Airflow"]
+        MLflow["MLflow"]
+        MiniIO["MiniIO"]
         K8sAPI["k8s API"]
         
         subgraph Monitoring["Monitoring"]
-            Loki["Loki"]
-            Grafana["Grafana"]
             Prometheus["Prometheus"]
+            Grafana["Grafana"]
         end
+        
+        Alerts["alerts"]
     end
     
-    DockerHub["Docker Hub"]
-    Alerts["alerts"]
-    Telegram["Telegram"]
-    
-    Infra -->|"provision"| YandexCloud
-    Deploy -->|"deploy"| Pods
-    ModelJob -->|"push"| DockerHub
-    
-    DockerHub -->|"pull"| Pods
+    InfraJob -->|"provision"| YandexCloud
+    DeployJob -->|"deploy & configure"| YandexCloud
+    ModelJob -->|"update service"| YandexCloud
+    CleanupJob -->|"destroy"| YandexCloud
     
     Producer -->|"send data"| Kafka
     Kafka -->|"consume"| Consumer
     Consumer -->|"compare"| Champion
+    Champion -->|"train/log/register"| MLflow
+    Champion -->|"store"| MiniIO
+    Consumer -->|"drift detection"| Drift
+    Drift -->|"store"| Redis
+    Drift -->|"trigger"| Airflow
+    
+    Producer -->|"metrics"| Prometheus
+    Consumer -->|"metrics"| Prometheus
     Champion -->|"metrics"| Prometheus
+    Drift -->|"metrics"| Prometheus
     
-    Producer -->|"logs"| Loki
-    Consumer -->|"logs"| Loki
-    Champion -->|"logs"| Loki
-    
-    Loki -->|"query"| Grafana
     Prometheus -->|"query"| Grafana
-    
     Grafana -->|"send"| Alerts
-    Alerts -->|"notify"| Telegram
     
     Consumer -->|"scale"| K8sAPI
-    K8sAPI -->|"manage"| Pods
-    
-    Cleanup -->|"clean"| YandexCloud
-    Cleanup -->|"clean"| DockerHub
+    K8sAPI -->|"manage"| Service
     
     style GitHubActions fill:#4ecdc4,stroke:#333
-    style DeployWorkflow fill:#45b7aa,stroke:#333
-    style CleanupWorkflow fill:#45b7aa,stroke:#333
     style YandexCloud fill:#ff6b6b,stroke:#333
     style Monitoring fill:#ffd93d,stroke:#333
+    style Service fill:#ff9ff3,stroke:#333
     style Kafka fill:#f9f,stroke:#333
-    style DockerHub fill:#a29bfe,stroke:#333
+    style Redis fill:#ff6b6b,stroke:#333
+    style Airflow fill:#74b9ff,stroke:#333
+    style MLflow fill:#00b894,stroke:#333
+    style MiniIO fill:#fdcb6e,stroke:#333
     style Alerts fill:#fd79a8,stroke:#333
-    style Telegram fill:#74b9ff,stroke:#333
 ```
 
 ---
