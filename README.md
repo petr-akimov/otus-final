@@ -1,6 +1,24 @@
 ### OTUS Course Final Project
 # Kubernetes-based Fraud Detection System in Action
 
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![Kafka](https://img.shields.io/badge/Kafka-Streaming-black)](https://kafka.apache.org/)
+[![Redis](https://img.shields.io/badge/Redis-Caching-DC382D)](https://redis.io/)
+[![Airflow](https://img.shields.io/badge/Airflow-Orchestration-017CEE)](https://airflow.apache.org/)
+[![MLflow](https://img.shields.io/badge/MLflow-Model_Tracking-0194E2)](https://mlflow.org/)
+[![MinIO](https://img.shields.io/badge/MinIO-Object_Storage-C72E49)](https://min.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1)](https://www.postgresql.org/)
+[![Evidently](https://img.shields.io/badge/Evidently-Drift_Monitoring-2D9CDB)](https://www.evidentlyai.com/)
+[![Docker](https://img.shields.io/badge/Docker-Containerization-2496ED)](https://www.docker.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Orchestration-326CE5)](https://kubernetes.io/)
+[![Yandex Cloud](https://img.shields.io/badge/Yandex_Cloud-K8s-5282FF)](https://cloud.yandex.com/)
+[![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC)](https://www.terraform.io/)
+[![Helm](https://img.shields.io/badge/Helm-Package_Manager-0F1689)](https://helm.sh/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-Visualization-F46800)](https://grafana.com/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI/CD-2088FF)](https://github.com/features/actions)
+[![XGBoost](https://img.shields.io/badge/XGBoost-ML_Model-3B7DD8)](https://xgboost.ai/)
+
 ## Project Overview
 
 This project implements an end-to-end MLOps pipeline for anti-fraud detection (identifying fraudulent transactions) using streaming data processing, data drift monitoring, and automated model retraining.
