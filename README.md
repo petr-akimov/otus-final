@@ -206,11 +206,99 @@ The system is built on top of Kubernetes (Managed Service for Kubernetes) and co
 
 ## Comparison of Two Locking Approaches to Prevent Concurrent Retraining Triggers Upon Data Drift Detection
 
-<img src="png/scenario1.png?raw=true" alt="Redis Scenario" title="Redis Locking Strategy" width="100%"> <br>
+### Scenario 1: Drift Detection via Redis (Quorum + Lock)
 
+```mermaid
+flowchart TD
+    Kafka["Kafka<br/>(topic: input)"]
+    
+    subgraph Consumers["Consumers"]
+        C1["Consumer 1<br/>(drift detection)"]
+        C2["Consumer 2<br/>(drift detection)"]
+        CN["Consumer N<br/>(drift detection)"]
+    end
+    
+    subgraph Redis["Redis"]
+        Vote["drift.vote:* (TTL)<br/>(voting)"]
+        Trigger["drift.trigger (NX, TTL)<br/>(trigger lock)"]
+    end
+    
+    Quorum{"Quorum check<br/>(enough votes?)"}
+    
+    Airflow["Trigger Airflow DAG"]
+    End["End"]
+    
+    Kafka --> C1
+    Kafka --> C2
+    Kafka --> CN
+    
+    C1 -->|"vote"| Vote
+    C2 -->|"vote"| Vote
+    CN -->|"vote"| Vote
+    
+    Vote -->|"aggregate results"| Quorum
+    
+    Quorum -->|"Yes"| Trigger
+    Quorum -->|"No"| End
+    
+    Trigger -->|"trigger"| Airflow
+    
+    style Kafka fill:#f9f,stroke:#333
+    style Redis fill:#ff6b6b,stroke:#333
+    style Quorum fill:#ffd93d,stroke:#333
+    style Airflow fill:#6bcb77,stroke:#333
+```
 ---
-
-<img src="png/scenario2.png?raw=true" alt="Kafka Scenario" title="Kafka Locking Strategy" width="100%"> <br>
+### Scenario 2: Drift Detection via Kafka (Leader Election)
+```mermaid
+flowchart TD
+    InputKafka["Kafka<br/>(topic: input)"]
+    
+    subgraph Consumers["Consumers"]
+        C1["Consumer 1<br/>(drift detection)"]
+        C2["Consumer 2<br/>(drift detection)"]
+        CN["Consumer N<br/>(drift detection)"]
+    end
+    
+    subgraph KafkaCluster["Kafka Cluster"]
+        Signals["drift-signals<br/>(drift signals)"]
+        Decisions["drift-decisions<br/>(trigger events)"]
+        CooldownTopic["cooldown<br/>(cooldown topic)"]
+    end
+    
+    Leader["Leader Consumer<br/>(vote collection & decision)"]
+    
+    Quorum{"Quorum check<br/>+ cooldown"}
+    
+    Airflow["Trigger Airflow DAG"]
+    End["End"]
+    
+    InputKafka --> C1
+    InputKafka --> C2
+    InputKafka --> CN
+    
+    C1 -->|"send drift signal"| Signals
+    C2 -->|"send drift signal"| Signals
+    CN -->|"send drift signal"| Signals
+    
+    Signals --> Leader
+    
+    Leader --> Quorum
+    
+    Quorum -->|"Yes"| Decisions
+    Quorum -->|"No"| End
+    
+    Decisions -->|"trigger"| Airflow
+    
+    Quorum -->|"start cooldown"| CooldownTopic
+    CooldownTopic -->|"cooldown signal"| Leader
+    
+    style InputKafka fill:#f9f,stroke:#333
+    style KafkaCluster fill:#ff6b6b,stroke:#333
+    style Leader fill:#4ecdc4,stroke:#333
+    style Quorum fill:#ffd93d,stroke:#333
+    style Airflow fill:#6bcb77,stroke:#333
+```
 
 ---
 
