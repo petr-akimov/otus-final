@@ -35,9 +35,79 @@ The system is built on top of Kubernetes (Managed Service for Kubernetes) and co
 
 ---
 
-## High-Level System Architecture
+## High-Level Design
 
-<img src="png/schema.png?raw=true" alt="General Schema" title="High-Level Solution Architecture" width="100%"> <br>
+```mermaid
+flowchart TD
+    subgraph GitHubActions["GitHub Actions (CI/CD)"]
+        subgraph DeployWorkflow["Workflow: deploy"]
+            Infra["Job: infra"]
+            Deploy["Job: deploy"]
+            ModelJob["Job: model"]
+        end
+        subgraph CleanupWorkflow["Workflow: cleanup"]
+            Cleanup["Job: cleanup"]
+        end
+    end
+    
+    subgraph YandexCloud["Yandex Cloud / k8s"]
+        subgraph Pods["Pods"]
+            Producer["Producer"]
+            Consumer["Consumer<br/>(HPAA 4-6)"]
+            Champion["champion"]
+        end
+        
+        Kafka["Kafka"]
+        K8sAPI["k8s API"]
+        
+        subgraph Monitoring["Monitoring"]
+            Loki["Loki"]
+            Grafana["Grafana"]
+            Prometheus["Prometheus"]
+        end
+    end
+    
+    DockerHub["Docker Hub"]
+    Alerts["alerts"]
+    Telegram["Telegram"]
+    
+    Infra -->|"provision"| YandexCloud
+    Deploy -->|"deploy"| Pods
+    ModelJob -->|"push"| DockerHub
+    
+    DockerHub -->|"pull"| Pods
+    
+    Producer -->|"send data"| Kafka
+    Kafka -->|"consume"| Consumer
+    Consumer -->|"compare"| Champion
+    Champion -->|"metrics"| Prometheus
+    
+    Producer -->|"logs"| Loki
+    Consumer -->|"logs"| Loki
+    Champion -->|"logs"| Loki
+    
+    Loki -->|"query"| Grafana
+    Prometheus -->|"query"| Grafana
+    
+    Grafana -->|"send"| Alerts
+    Alerts -->|"notify"| Telegram
+    
+    Consumer -->|"scale"| K8sAPI
+    K8sAPI -->|"manage"| Pods
+    
+    Cleanup -->|"clean"| YandexCloud
+    Cleanup -->|"clean"| DockerHub
+    
+    style GitHubActions fill:#4ecdc4,stroke:#333
+    style DeployWorkflow fill:#45b7aa,stroke:#333
+    style CleanupWorkflow fill:#45b7aa,stroke:#333
+    style YandexCloud fill:#ff6b6b,stroke:#333
+    style Monitoring fill:#ffd93d,stroke:#333
+    style Kafka fill:#f9f,stroke:#333
+    style DockerHub fill:#a29bfe,stroke:#333
+    style Alerts fill:#fd79a8,stroke:#333
+    style Telegram fill:#74b9ff,stroke:#333
+```
 
 ---
 
